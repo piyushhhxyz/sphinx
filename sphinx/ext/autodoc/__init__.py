@@ -723,6 +723,21 @@ class Documenter:
                 # Ignore non-string __doc__
                 doc = None
 
+            # For classmethod properties (@classmethod @property), the member
+            # value is the return value of the property, not the descriptor.
+            # Extract the docstring from the actual property descriptor instead.
+            if inspect.isclass(self.object):
+                for cls_ in inspect.getmro(self.object):
+                    class_dict_attr = cls_.__dict__.get(membername)
+                    if class_dict_attr is not None:
+                        func = getattr(class_dict_attr, '__func__', None)
+                        if (isinstance(class_dict_attr, classmethod) and
+                                isinstance(func, property)):
+                            prop_doc = func.__doc__
+                            if isinstance(prop_doc, str):
+                                doc = prop_doc
+                        break
+
             # if the member __doc__ is the same as self's __doc__, it's just
             # inherited and therefore not the member's doc
             cls = self.get_attr(member, '__class__', None)
@@ -2661,10 +2676,48 @@ class PropertyDocumenter(DocstringStripSignatureMixin, ClassLevelDocumenter):  #
     @classmethod
     def can_document_member(cls, member: Any, membername: str, isattr: bool, parent: Any
                             ) -> bool:
-        return inspect.isproperty(member) and isinstance(parent, ClassDocumenter)
+        if inspect.isproperty(member) and isinstance(parent, ClassDocumenter):
+            return True
+
+        # Also handle classmethod properties (Python 3.9+: @classmethod @property)
+        if isinstance(parent, ClassDocumenter):
+            for cls_ in inspect.getmro(parent.object):
+                attr = cls_.__dict__.get(membername)
+                if attr is not None:
+                    if (isinstance(attr, classmethod) and
+                            isinstance(getattr(attr, '__func__', None), property)):
+                        return True
+                    break
+
+        return False
 
     def document_members(self, all_members: bool = False) -> None:
         pass
+
+    def import_object(self, raiseerror: bool = False) -> bool:
+        """Import the object given by *self.modname* and *self.objpath* and set
+        it as *self.object*.
+
+        For classmethod properties, resolves self.object to the underlying
+        property descriptor so that docstrings and type annotations can be
+        extracted properly.
+        """
+        ret = super().import_object(raiseerror)
+        if not ret:
+            return ret
+
+        # Detect classmethod property by walking MRO
+        if self.parent is not None:
+            for cls in inspect.getmro(self.parent):
+                attr = cls.__dict__.get(self.object_name)
+                if attr is not None:
+                    if (isinstance(attr, classmethod) and
+                            isinstance(getattr(attr, '__func__', None), property)):
+                        self.object = attr.__func__
+                        self._is_classmethod_property = True
+                    break
+
+        return ret
 
     def get_real_modname(self) -> str:
         real_modname = self.get_attr(self.parent or self.object, '__module__', None)
@@ -2675,6 +2728,8 @@ class PropertyDocumenter(DocstringStripSignatureMixin, ClassLevelDocumenter):  #
         sourcename = self.get_sourcename()
         if inspect.isabstractmethod(self.object):
             self.add_line('   :abstractmethod:', sourcename)
+        if getattr(self, '_is_classmethod_property', False):
+            self.add_line('   :classmethod:', sourcename)
 
         if safe_getattr(self.object, 'fget', None) and self.config.autodoc_typehints != 'none':
             try:
