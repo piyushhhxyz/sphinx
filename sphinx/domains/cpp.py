@@ -882,6 +882,24 @@ class ASTCharLiteral(ASTLiteral):
         signode.append(nodes.Text(txt, txt))
 
 
+class ASTUserDefinedLiteral(ASTLiteral):
+    def __init__(self, literal: ASTLiteral, ident: "ASTIdentifier") -> None:
+        self.literal = literal
+        self.ident = ident
+
+    def _stringify(self, transform: StringifyTransform) -> str:
+        return transform(self.literal) + str(self.ident)
+
+    def get_id(self, version: int) -> str:
+        # mangle as if it's just the literal
+        return self.literal.get_id(version)
+
+    def describe_signature(self, signode: TextElement, mode: str,
+                           env: "BuildEnvironment", symbol: "Symbol") -> None:
+        self.literal.describe_signature(signode, mode, env, symbol)
+        signode.append(nodes.Text(self.ident.identifier))
+
+
 class ASTThisLiteral(ASTExpression):
     def _stringify(self, transform: StringifyTransform) -> str:
         return "this"
@@ -4643,6 +4661,16 @@ class DefinitionParser(BaseParser):
             self.pos += 1
         return self.definition[startPos:self.pos]
 
+    _udl_identifier_re = re.compile(r'[a-zA-Z_][a-zA-Z0-9_]*')
+
+    def _parse_udl_suffix(self) -> ASTIdentifier:
+        # user-defined literal suffix (ud-suffix):
+        #   an identifier, immediately following the literal with no whitespace
+        pos = self.pos
+        if self.match(self._udl_identifier_re):
+            return ASTIdentifier(self.definition[pos:self.pos])
+        return None
+
     def _parse_literal(self) -> ASTLiteral:
         # -> integer-literal
         #  | character-literal
@@ -4664,10 +4692,19 @@ class DefinitionParser(BaseParser):
             if self.match(regex):
                 while self.current_char in 'uUlLfF':
                     self.pos += 1
-                return ASTNumberLiteral(self.definition[pos:self.pos])
+                numLit = ASTNumberLiteral(self.definition[pos:self.pos])
+                # user-defined literal suffix
+                udl = self._parse_udl_suffix()
+                if udl is not None:
+                    return ASTUserDefinedLiteral(numLit, udl)
+                return numLit
 
         string = self._parse_string()
         if string is not None:
+            # user-defined literal suffix
+            udl = self._parse_udl_suffix()
+            if udl is not None:
+                return ASTUserDefinedLiteral(ASTStringLiteral(string), udl)
             return ASTStringLiteral(string)
 
         # character-literal
@@ -4675,14 +4712,18 @@ class DefinitionParser(BaseParser):
             prefix = self.last_match.group(1)  # may be None when no prefix
             data = self.last_match.group(2)
             try:
-                return ASTCharLiteral(prefix, data)
+                charLit = ASTCharLiteral(prefix, data)
             except UnicodeDecodeError as e:
                 self.fail("Can not handle character literal. Internal error was: %s" % e)
             except UnsupportedMultiCharacterCharLiteral:
                 self.fail("Can not handle character literal"
                           " resulting in multiple decoded characters.")
+            # user-defined literal suffix
+            udl = self._parse_udl_suffix()
+            if udl is not None:
+                return ASTUserDefinedLiteral(charLit, udl)
+            return charLit
 
-        # TODO: user-defined lit
         return None
 
     def _parse_fold_or_paren_expression(self) -> ASTExpression:
