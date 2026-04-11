@@ -376,7 +376,146 @@ class Include(BaseInclude, SphinxDirective):
         rel_filename, filename = self.env.relfn2path(self.arguments[0])
         self.arguments[0] = filename
         self.env.note_included(filename)
-        return super().run()
+        # emit "source-read" event for the included file
+        # and use the (potentially modified) content
+        rel_fn = rel_filename  # relative to source dir
+        # Strip known suffixes to get a docname-like identifier
+        _docname = rel_fn
+        for suffix in self.config.source_suffix:
+            if _docname.endswith(suffix):
+                _docname = _docname[:-len(suffix)]
+                break
+        # Read the file content
+        encoding = self.options.get(
+            'encoding', self.state.document.settings.input_encoding)
+        e_handler = self.state.document.settings.input_encoding_error_handler
+        try:
+            from docutils.io import FileInput
+            include_file = FileInput(
+                source_path=filename, encoding=encoding,
+                error_handler=e_handler)
+            rawtext = include_file.read()
+        except Exception:
+            # If we can't read the file, fall back to the default behavior
+            return super().run()
+        # Emit source-read event
+        arg = [rawtext]
+        self.env.events.emit('source-read', _docname, arg)
+        if arg[0] == rawtext:
+            # Content was not modified, use default behavior
+            return super().run()
+        # Content was modified by source-read event handler(s).
+        # We need to use the modified content instead of letting
+        # the parent class re-read the file from disk.
+        rawtext = arg[0]
+        # Apply start-line/end-line options
+        startline = self.options.get('start-line', None)
+        endline = self.options.get('end-line', None)
+        if startline or (endline is not None):
+            lines = rawtext.splitlines(True)
+            rawtext = ''.join(lines[startline:endline])
+        # Apply start-after/end-before options
+        after_text = self.options.get('start-after', None)
+        if after_text:
+            after_index = rawtext.find(after_text)
+            if after_index < 0:
+                raise self.severe('Problem with "start-after" option of "%s" '
+                                  'directive:\nText not found.' % self.name)
+            rawtext = rawtext[after_index + len(after_text):]
+        before_text = self.options.get('end-before', None)
+        if before_text:
+            before_index = rawtext.find(before_text)
+            if before_index < 0:
+                raise self.severe('Problem with "end-before" option of "%s" '
+                                  'directive:\nText not found.' % self.name)
+            rawtext = rawtext[:before_index]
+
+        tab_width = self.options.get(
+            'tab-width', self.state.document.settings.tab_width)
+        from docutils.statemachine import string2lines
+        include_lines = string2lines(rawtext, tab_width,
+                                     convert_whitespace=True)
+        for i, line in enumerate(include_lines):
+            if len(line) > self.state.document.settings.line_length_limit:
+                raise self.warning('"%s": line %d exceeds the'
+                                   ' line-length-limit.' % (filename, i + 1))
+
+        if 'literal' in self.options:
+            if tab_width >= 0:
+                text = rawtext.expandtabs(tab_width)
+            else:
+                text = rawtext
+            literal_block = nodes.literal_block(
+                rawtext, source=filename,
+                classes=self.options.get('class', []))
+            literal_block.line = 1
+            self.add_name(literal_block)
+            if 'number-lines' in self.options:
+                try:
+                    startline = int(self.options['number-lines'] or 1)
+                except ValueError:
+                    raise self.error(':number-lines: with non-integer '
+                                     'start value')
+                endline = startline + len(include_lines)
+                if text.endswith('\n'):
+                    text = text[:-1]
+                from docutils.utils.code_analyzer import NumberLines
+                tokens = NumberLines([([], text)], startline, endline)
+                for classes, value in tokens:
+                    if classes:
+                        literal_block += nodes.inline(value, value,
+                                                      classes=classes)
+                    else:
+                        literal_block += nodes.Text(value)
+            else:
+                literal_block += nodes.Text(text)
+            return [literal_block]
+
+        if 'code' in self.options:
+            self.options['source'] = filename
+            if tab_width < 0:
+                include_lines = rawtext.splitlines()
+            from docutils.parsers.rst.directives.body import CodeBlock
+            codeblock = CodeBlock(self.name,
+                                  [self.options.pop('code')],
+                                  self.options,
+                                  include_lines,
+                                  self.lineno,
+                                  self.content_offset,
+                                  self.block_text,
+                                  self.state,
+                                  self.state_machine)
+            return codeblock.run()
+
+        # Prevent circular inclusion
+        clip_options = (startline, endline, before_text, after_text)
+        include_log = self.state.document.include_log
+        from docutils import utils
+        current_source = self.state.document.current_source
+        if not include_log:
+            include_log.append((utils.relative_path(None, current_source),
+                                (None, None, None, None)))
+        if (filename, clip_options) in include_log:
+            master_paths = (pth for (pth, opt) in reversed(include_log))
+            inclusion_chain = '\n> '.join((filename, *master_paths))
+            raise self.warning('circular inclusion in "%s" directive:\n%s'
+                               % (self.name, inclusion_chain))
+
+        if 'parser' in self.options:
+            document = utils.new_document(filename,
+                                          self.state.document.settings)
+            document.include_log = include_log + [(filename, clip_options)]
+            parser = self.options['parser']()
+            parser.parse('\n'.join(include_lines), document)
+            document.transformer.populate_from_components((parser,))
+            document.transformer.apply_transforms()
+            return document.children
+
+        # Include as rST source
+        include_lines += ['', '.. end of inclusion from "%s"' % filename]
+        self.state_machine.insert_input(include_lines, filename)
+        include_log.append((filename, clip_options))
+        return []
 
 
 def setup(app: Sphinx) -> dict[str, Any]:
