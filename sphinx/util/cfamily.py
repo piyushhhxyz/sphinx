@@ -66,6 +66,7 @@ char_literal_re = re.compile(r'''(?x)
       ))
     )'
 ''')
+udl_identifier_re = re.compile(r'[a-zA-Z_][a-zA-Z0-9_]*')
 
 
 def verify_description_mode(mode: str) -> None:

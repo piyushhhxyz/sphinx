@@ -35,7 +35,7 @@ from sphinx.util.cfamily import (
     BaseParser, DefinitionError, UnsupportedMultiCharacterCharLiteral,
     identifier_re, anon_identifier_re, integer_literal_re, octal_literal_re,
     hex_literal_re, binary_literal_re, float_literal_re,
-    char_literal_re
+    char_literal_re, udl_identifier_re
 )
 from sphinx.util.docfields import Field, GroupedField
 from sphinx.util.docutils import SphinxDirective
@@ -4664,10 +4664,16 @@ class DefinitionParser(BaseParser):
             if self.match(regex):
                 while self.current_char in 'uUlLfF':
                     self.pos += 1
+                # user-defined literal suffix
+                if self.match(udl_identifier_re):
+                    pass
                 return ASTNumberLiteral(self.definition[pos:self.pos])
 
         string = self._parse_string()
         if string is not None:
+            # user-defined literal suffix
+            if self.match(udl_identifier_re):
+                string += self.matched_text
             return ASTStringLiteral(string)
 
         # character-literal
@@ -4682,7 +4688,7 @@ class DefinitionParser(BaseParser):
                 self.fail("Can not handle character literal"
                           " resulting in multiple decoded characters.")
 
-        # TODO: user-defined lit
+        # user-defined literal
         return None
 
     def _parse_fold_or_paren_expression(self) -> ASTExpression:

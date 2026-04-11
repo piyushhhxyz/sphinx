@@ -176,7 +176,13 @@ def test_expressions():
         exprCheck(p + "'\\U0001f34c'", t + "127820")
         exprCheck(p + "'\\U0001F34C'", t + "127820")
 
-    # TODO: user-defined lit
+    # user-defined literals
+    exprCheck('12_km', 'L12_kmE')
+    exprCheck('0.5_Pa', 'L0.5_PaE')
+    exprCheck('1.0e-3_mA', 'L1.0e-3_mAE')
+    exprCheck('1_s', 'L1_sE')
+    exprCheck('0x1_foo', 'L0x1_fooE')
+    exprCheck('"hello"_udl', 'LA9_KcE')
     exprCheck('(... + Ns)', '(... + Ns)', id4='flpl2Ns')
     exprCheck('(Ns + ...)', '(Ns + ...)', id4='frpl2Ns')
     exprCheck('(Ns + ... + 0)', '(Ns + ... + 0)', id4='fLpl2NsL0E')
@@ -372,6 +378,10 @@ def test_member_definitions():
     check('member', 'extern thread_local int myInt', {1: 'myInt__i', 2: '5myInt'})
     check('member', 'thread_local extern int myInt', {1: 'myInt__i', 2: '5myInt'},
           'extern thread_local int myInt')
+
+    # user-defined literals (UDLs), see #7590
+    check('member', 'constexpr auto planck_constant = 6.62607015e-34q_J * 1q_s',
+          {1: 'planck_constant__auto', 2: '15planck_constant'})
 
     # tests based on https://en.cppreference.com/w/cpp/language/bit_field
     check('member', 'int b : 3', {1: 'b__i', 2: '1b'})
