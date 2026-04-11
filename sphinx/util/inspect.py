@@ -393,6 +393,15 @@ def isproperty(obj: Any) -> bool:
     return isinstance(obj, property)
 
 
+def isclassmethod_property(obj: Any) -> bool:
+    """Check if the object is a classmethod wrapping a property (Python 3.9+)."""
+    if isinstance(obj, classmethod):
+        func = obj.__func__
+        if isinstance(func, property):
+            return True
+    return False
+
+
 def isgenericalias(obj: Any) -> bool:
     """Check if the object is GenericAlias."""
     if (hasattr(typing, '_GenericAlias') and  # only for py37+

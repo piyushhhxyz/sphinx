@@ -2663,6 +2663,32 @@ class PropertyDocumenter(DocstringStripSignatureMixin, ClassLevelDocumenter):  #
                             ) -> bool:
         return inspect.isproperty(member) and isinstance(parent, ClassDocumenter)
 
+    def import_object(self, raiseerror: bool = False) -> bool:
+        """Import the object given by *self.modname* and *self.objpath* and set
+        it as *self.object*.
+
+        For classmethod properties, we need to look in the class's __dict__
+        to get the actual property descriptor, since getattr() returns the
+        property's return value.
+        """
+        ret = super().import_object(raiseerror)
+        if not ret:
+            return ret
+
+        if not inspect.isproperty(self.object):
+            # If self.object is not a property (e.g. it's the return value of
+            # a classmethod property), look in __dict__ for the real descriptor.
+            if self.parent is not None:
+                for cls in inspect.getmro(self.parent):
+                    obj = cls.__dict__.get(self.object_name)
+                    if obj is not None:
+                        if inspect.isclassmethod_property(obj):
+                            self.object = obj.__func__
+                            self._is_classmethod_property = True
+                        break
+
+        return ret
+
     def document_members(self, all_members: bool = False) -> None:
         pass
 
@@ -2675,6 +2701,8 @@ class PropertyDocumenter(DocstringStripSignatureMixin, ClassLevelDocumenter):  #
         sourcename = self.get_sourcename()
         if inspect.isabstractmethod(self.object):
             self.add_line('   :abstractmethod:', sourcename)
+        if getattr(self, '_is_classmethod_property', False):
+            self.add_line('   :classmethod:', sourcename)
 
         if safe_getattr(self.object, 'fget', None) and self.config.autodoc_typehints != 'none':
             try:

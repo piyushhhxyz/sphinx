@@ -26,3 +26,18 @@ def test_properties(app):
         '   docstring',
         '',
     ]
+
+
+@pytest.mark.sphinx('html', testroot='ext-autodoc')
+def test_class_properties(app):
+    actual = do_autodoc(app, 'property', 'target.properties.Foo.class_prop')
+    assert list(actual) == [
+        '',
+        '.. py:property:: Foo.class_prop',
+        '   :module: target.properties',
+        '   :classmethod:',
+        '   :type: int',
+        '',
+        '   docstring',
+        '',
+    ]

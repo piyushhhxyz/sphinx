@@ -18,7 +18,7 @@ from sphinx.ext.autodoc.mock import ismock, undecorate
 from sphinx.pycode import ModuleAnalyzer, PycodeError
 from sphinx.util import logging
 from sphinx.util.inspect import (getannotations, getmro, getslots, isclass, isenumclass,
-                                 safe_getattr)
+                                 isclassmethod_property, safe_getattr)
 
 if False:
     # For type annotation
@@ -213,6 +213,15 @@ def get_object_members(subject: Any, objpath: List[str], attrgetter: Callable,
     for name in dir(subject):
         try:
             value = attrgetter(subject, name)
+
+            # Check if this is a classmethod property (Python 3.9+).
+            for cls in getmro(subject):
+                class_dict = safe_getattr(cls, '__dict__', {})
+                if name in class_dict:
+                    if isclassmethod_property(class_dict[name]):
+                        value = class_dict[name].__func__
+                    break
+
             directly_defined = name in obj_dict
             name = unmangle(subject, name)
             if name and name not in members:
@@ -277,6 +286,17 @@ def get_class_members(subject: Any, objpath: List[str], attrgetter: Callable
             value = attrgetter(subject, name)
             if ismock(value):
                 value = undecorate(value)
+
+            # Check if this is a classmethod property (Python 3.9+).
+            # In that case, attrgetter returns the property's return value,
+            # not the property descriptor itself. We need to look in __dict__
+            # to find the actual descriptor.
+            for cls in getmro(subject):
+                class_dict = safe_getattr(cls, '__dict__', {})
+                if name in class_dict:
+                    if isclassmethod_property(class_dict[name]):
+                        value = class_dict[name].__func__
+                    break
 
             unmangled = unmangle(subject, name)
             if unmangled and unmangled not in members:
