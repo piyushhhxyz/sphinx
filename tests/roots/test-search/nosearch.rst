@@ -1,7 +1,0 @@
-:nosearch:
-
-nosearch
-========
-
-zfs
-latex
