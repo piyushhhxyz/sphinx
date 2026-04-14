@@ -4664,6 +4664,13 @@ class DefinitionParser(BaseParser):
             if self.match(regex):
                 while self.current_char in 'uUlLfF':
                     self.pos += 1
+                # user-defined literal suffix
+                if self.pos < len(self.definition) and \
+                        self.definition[self.pos] in '_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ':
+                    self.pos += 1
+                    while self.pos < len(self.definition) and \
+                            self.definition[self.pos] in '_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789':
+                        self.pos += 1
                 return ASTNumberLiteral(self.definition[pos:self.pos])
 
         string = self._parse_string()

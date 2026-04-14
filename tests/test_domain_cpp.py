@@ -176,7 +176,15 @@ def test_expressions():
         exprCheck(p + "'\\U0001f34c'", t + "127820")
         exprCheck(p + "'\\U0001F34C'", t + "127820")
 
-    # TODO: user-defined lit
+    # user-defined literals
+    for i in ints:
+        exprCheck(i + '_km', 'L' + i + '_kmE')
+        exprCheck(i + 'ULL_km', 'L' + i + 'ULL_kmE')
+    exprCheck('5e42_km', 'L5e42_kmE')
+    exprCheck('5e42f_km', 'L5e42f_kmE')
+    exprCheck('1q_s', 'L1q_sE')
+    exprCheck('1Q_s', 'L1Q_sE')
+    exprCheck('6.62607015e-34q_J', 'L6.62607015e-34q_JE')
     exprCheck('(... + Ns)', '(... + Ns)', id4='flpl2Ns')
     exprCheck('(Ns + ...)', '(Ns + ...)', id4='frpl2Ns')
     exprCheck('(Ns + ... + 0)', '(Ns + ... + 0)', id4='fLpl2NsL0E')
@@ -382,6 +390,10 @@ def test_member_definitions():
     # TODO: enable once the ternary operator is supported
     #check('member', 'int b : (true ? 8 : a) = 42', {1: 'b__i', 2: '1b'})
     check('member', 'int b : 1 || new int{0}', {1: 'b__i', 2: '1b'})
+
+    # user-defined literals in member initializers
+    check('member', 'constexpr auto v = 6.62607015e-34q_J * 1q_s',
+          {1: 'v__auto', 2: '1v'})
 
 
 def test_function_definitions():
