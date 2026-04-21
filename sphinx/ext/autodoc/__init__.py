@@ -2654,6 +2654,7 @@ class PropertyDocumenter(DocstringStripSignatureMixin, ClassLevelDocumenter):  #
     """
     objtype = 'property'
     member_order = 60
+    isclassmethod = False
 
     # before AttributeDocumenter
     priority = AttributeDocumenter.priority + 1
@@ -2661,7 +2662,35 @@ class PropertyDocumenter(DocstringStripSignatureMixin, ClassLevelDocumenter):  #
     @classmethod
     def can_document_member(cls, member: Any, membername: str, isattr: bool, parent: Any
                             ) -> bool:
-        return inspect.isproperty(member) and isinstance(parent, ClassDocumenter)
+        if not isinstance(parent, ClassDocumenter):
+            return False
+        # Also support @classmethod @property (classmethod wrapping a property),
+        # available since Python 3.9.
+        return (inspect.isproperty(member)
+                or (isinstance(member, classmethod)
+                    and isinstance(member.__func__, property)))
+
+    def import_object(self, raiseerror: bool = False) -> bool:
+        ret = super().import_object(raiseerror)
+        if not ret:
+            return ret
+
+        # When the raw descriptor is a classmethod wrapping a property
+        # (i.e. @classmethod @property), unwrap it to the inner property so
+        # that add_directive_header and get_doc work with it naturally.
+        # Record that a :classmethod: option must be emitted.
+        # Walk the MRO so that inherited class-properties are also handled.
+        self.isclassmethod = False
+        if self.parent:
+            for basecls in inspect.getmro(self.parent):
+                raw = basecls.__dict__.get(self.object_name)
+                if raw is not None:
+                    if isinstance(raw, classmethod) and isinstance(raw.__func__, property):
+                        self.object = raw.__func__
+                        self.isclassmethod = True
+                    break
+
+        return ret
 
     def document_members(self, all_members: bool = False) -> None:
         pass
@@ -2673,6 +2702,8 @@ class PropertyDocumenter(DocstringStripSignatureMixin, ClassLevelDocumenter):  #
     def add_directive_header(self, sig: str) -> None:
         super().add_directive_header(sig)
         sourcename = self.get_sourcename()
+        if self.isclassmethod:
+            self.add_line('   :classmethod:', sourcename)
         if inspect.isabstractmethod(self.object):
             self.add_line('   :abstractmethod:', sourcename)
 

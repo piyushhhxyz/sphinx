@@ -237,6 +237,25 @@ def get_object_members(subject: Any, objpath: List[str], attrgetter: Callable,
     return members
 
 
+def _get_classproperty_descriptor(value: Any, subject: Any, name: str) -> Any:
+    """Return the raw ``classmethod(property(...))`` descriptor for *name* on
+    *subject* if one exists, otherwise return *value* unchanged.
+
+    ``getattr()`` invokes the descriptor protocol and returns the property's
+    resolved value rather than the descriptor object itself, making it
+    impossible for ``PropertyDocumenter`` to recognise the member.  Walking
+    the MRO to retrieve the raw ``__dict__`` entry avoids this.
+    """
+    for base in getmro(subject):
+        raw = base.__dict__.get(name)
+        if raw is None:
+            continue
+        if isinstance(raw, classmethod) and isinstance(raw.__func__, property):
+            return raw
+        return value
+    return value
+
+
 def get_class_members(subject: Any, objpath: List[str], attrgetter: Callable
                       ) -> Dict[str, "ObjectMember"]:
     """Get members and attributes of target class."""
@@ -281,9 +300,12 @@ def get_class_members(subject: Any, objpath: List[str], attrgetter: Callable
             unmangled = unmangle(subject, name)
             if unmangled and unmangled not in members:
                 if name in obj_dict:
-                    members[unmangled] = ObjectMember(unmangled, value, class_=subject)
+                    members[unmangled] = ObjectMember(unmangled,
+                                                      _get_classproperty_descriptor(value, subject, name),
+                                                      class_=subject)
                 else:
-                    members[unmangled] = ObjectMember(unmangled, value)
+                    members[unmangled] = ObjectMember(unmangled,
+                                                      _get_classproperty_descriptor(value, subject, name))
         except AttributeError:
             continue
 

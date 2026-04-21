@@ -837,6 +837,11 @@ def getdoc(obj: Any, attrgetter: Callable = safe_getattr,
     * inherited docstring
     * inherited decorated methods
     """
+    # Unwrap classmethod(property(...)) so that the inner property's docstring
+    # is returned instead of the C-level classmethod builtin docstring.
+    # This handles @classmethod @property descriptors (Python 3.9+).
+    if isinstance(obj, classmethod) and isinstance(getattr(obj, '__func__', None), property):
+        obj = obj.__func__
     doc = attrgetter(obj, '__doc__', None)
     if ispartial(obj) and doc == obj.__class__.__doc__:
         return getdoc(obj.func)
